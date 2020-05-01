@@ -1,0 +1,7 @@
+{
+    "payRewardsTo":"",
+    "rpcHost":"host:port",
+    "rpcUser":"user",
+    "rpcPassword":"password",
+    "port":19002
+}
