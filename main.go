@@ -38,6 +38,8 @@ type StratumClient struct {
 	SubscribedToExtraNonce bool
 }
 
+var powFunc func(data []byte) ([]byte, error)
+
 var clients = sync.Map{}
 var currentBlock *wire.MsgBlock
 var currentJob []interface{}
@@ -56,6 +58,13 @@ func main() {
 	if err != nil {
 		log.Printf("Could not find config. Make sure it exists in the executable path (solominer.json)\n")
 		os.Exit(-1)
+	}
+
+	switch cfg.PoWFunc {
+	case "lyra2rev3":
+		powFunc = lyra2rev3.SumV3
+	default:
+		powFunc = lyra2rev3.SumV3
 	}
 
 	rpc, err = rpcclient.New(&rpcclient.ConnConfig{
@@ -283,7 +292,7 @@ func processStratumMessage(client *StratumClient, msg stratum.StratumMessage) {
 		client.conn.Outgoing <- stratum.StratumMessage{
 			MessageID: msg.Id(),
 			Result: []interface{}{
-				[][]string{[]string{"mining.notify", clientID}, []string{"mining.set_difficulty", clientID}},
+				[][]string{{"mining.notify", clientID}, {"mining.set_difficulty", clientID}},
 				fmt.Sprintf("%x", client.ExtraNonce1),
 				client.ExtraNonce2Size,
 			},
@@ -310,12 +319,16 @@ func processStratumMessage(client *StratumClient, msg stratum.StratumMessage) {
 			log.Printf("Error parsing extranonce2: %s", err.Error())
 		}
 
-		nonceint, _ := strconv.ParseInt(params[4].(string), 16, 64)
-		nonce := uint32(nonceint)
+		b, _ := hex.DecodeString(params[4].(string))
+		nonce := binary.LittleEndian.Uint32(b)
+		/*nonceint, _ := strconv.ParseInt(params[4].(string), 16, 64)
+		nonce := uint32(nonceint)*/
 		timeint, _ := strconv.ParseInt(params[3].(string), 16, 64)
 		timestamp := uint32(timeint)
 
 		submitBlockLock.Lock()
+
+		log.Printf("%v", params)
 
 		coinbaseTx := wire.NewMsgTx(wire.TxVersion)
 		coinbaseBytes := make([]byte, len(currentCoinbase1)+len(currentCoinbase2)+8)
@@ -364,14 +377,15 @@ func processStratumMessage(client *StratumClient, msg stratum.StratumMessage) {
 
 		var headerBuf bytes.Buffer
 		submitBlock.Header.Serialize(&headerBuf)
-		powHash, _ := lyra2rev3.SumV3(headerBuf.Bytes())
+		powHash, _ := powFunc(headerBuf.Bytes())
 		target := blockchain.CompactToBig(currentBlock.Header.Bits)
 		ch, _ := chainhash.NewHash(powHash[:])
 		bnHash := blockchain.HashToBig(ch)
-		if bnHash.Cmp(target) < 0 {
+		off := bnHash.Cmp(target)
+		if off != 0 {
 			result, err := rpc.RawRequest("submitblock", []json.RawMessage{[]byte(fmt.Sprintf("\"%s\"", hex.EncodeToString(blockBuf.Bytes())))})
 			if string(result) != "null" {
-				log.Printf("Submit block failed: %s", string(result))
+				log.Printf("Submit block 1 failed: %s", string(result))
 			}
 			success = (err == nil && string(result) == "null")
 		}

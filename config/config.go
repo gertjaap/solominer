@@ -11,6 +11,7 @@ type MinerConfig struct {
 	RpcUser      string `json:"rpcUser"`
 	RpcPassword  string `json:"rpcPassword"`
 	StratumPort  int    `json:"port"`
+	PoWFunc      string `json:"powFunc"`
 }
 
 func GetConfig() (MinerConfig, error) {
